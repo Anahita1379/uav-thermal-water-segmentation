@@ -38,6 +38,7 @@ class OnlineTraining:
         self.horizon_topic = '/horizon/mask'
         self.sky_topic = '/sky/mask'
 
+        # initialize the sky horizon topic to the horizon topic by default
         self.sky_horizon_topic = self.horizon_topic
         if self.args.sky_segmentation:
             print('Using sky segmentation...')
@@ -49,9 +50,12 @@ class OnlineTraining:
         # Compute constants and start ros
         self.start_ros()
 
+    # --------------------------------------------------------------------------------
     def setup_networks_and_training(self):
+
         self.device = torch.device('cuda:0')
 
+        # default weight path is 'weights/mobilenetv3_fpn.ckpt'
         self.inference_network = SegmentationNetwork(weights_path=self.args.weights_path)
         self.momentum_network = SegmentationNetwork(weights_path=self.args.weights_path)
         self.training_network = SegmentationNetwork(weights_path=self.args.weights_path)
@@ -87,6 +91,7 @@ class OnlineTraining:
 
         self.optimizer = torch.optim.Adam(self.training_network.model.parameters(), lr=self.args.lr, weight_decay=0.0001)
 
+    # ------------------------------------------------------------------------------
     def start_ros(self):
 
         # Create the node
@@ -125,67 +130,85 @@ class OnlineTraining:
                 
                 ts_train_motion.registerCallback(self.motion_callback)
 
-            
-        ts_inf = message_filters.ApproximateTimeSynchronizer([thermal_sub, sky_horizon_mask_sub], 10, 0.01, allow_headerless=False)
+        
+        # this is called after the training 
+        ts_inf = message_filters.ApproximateTimeSynchronizer([thermal_sub, sky_horizon_mask_sub],
+                                                            10, 0.01, allow_headerless=False)
         ts_inf.registerCallback(self.inference_callback)
         rospy.spin()
 
-
-    # Intermediary callbacks
+   
+#------------------ Intermediary callbacks------------------
+    # ---------------------------------------------------------------------------
     def texture_callback(self, thermal_msg, horizon_msg, texture_msg):
         self.training_callback(thermal_msg, horizon_msg, texture_msg=texture_msg)
+
+    # ---------------------------------------------------------------------------
 
     def motion_callback(self, thermal_msg, horizon_msg, motion_msg):
         self.training_callback(thermal_msg, horizon_msg, motion_msg=motion_msg)
 
+    # ---------------------------------------------------------------------------
+
     def texture_motion_callback(self, thermal_msg, horizon_msg, texture_msg, motion_msg):
         self.training_callback(thermal_msg, horizon_msg, texture_msg=texture_msg, motion_msg=motion_msg)
 
+    # ---------------------------------------------------------------------------
 
     def inference_callback(self, thermal_msg, horizon_msg):
         # print('Got data, doing water inference {:.2f}'.format(rospy.get_time()))
-        img = self.bridge.imgmsg_to_cv2(thermal_msg, "32FC1")
+
+        # This method converts a ROS image message into a NumPy array that OpenCV can process.
+        img = self.bridge.imgmsg_to_cv2(thermal_msg, "32FC1") # single-channel 32-bit float format
         water_segmentation = self.inference_network.predict(img).squeeze()    
         
-        sky_mask = self.bridge.imgmsg_to_cv2(horizon_msg, "mono8")
+        sky_mask = self.bridge.imgmsg_to_cv2(horizon_msg, "mono8") #8-bit, single-channel grayscale.
         water_segmentation[sky_mask == 255] = 0
 
         if self.args.postprocess:
             water_segmentation = postprocess_mask(water_segmentation)
 
-        water_img = self.bridge.cv2_to_imgmsg(water_segmentation, "mono8")
+        water_img = self.bridge.cv2_to_imgmsg(water_segmentation, "mono8") #8-bit, single-channel grayscale.
         water_img.header = thermal_msg.header
         self.segmentation_pub.publish(water_img)   
+
+    # ---------------------------------------------------------------------------
 
     def training_callback(self, thermal_msg, horizon_msg, texture_msg=None, motion_msg=None):
         print('Got training data {:.2f}'.format(rospy.get_time()))
 
-        img = self.bridge.imgmsg_to_cv2(thermal_msg, "32FC1")
-        sky_horizon_cue = self.bridge.imgmsg_to_cv2(horizon_msg, "mono8")
+        # This method converts a ROS image message into a NumPy array that OpenCV can process.
+        img = self.bridge.imgmsg_to_cv2(thermal_msg, "32FC1") #single-channel 32-bit float format,
+        sky_horizon_cue = self.bridge.imgmsg_to_cv2(horizon_msg, "mono8") #8-bit, single-channel grayscale.
 
         texture_cue, motion_cue = None, None
         if texture_msg is not None:
-            texture_cue = self.bridge.imgmsg_to_cv2(texture_msg, "32FC1")
+            texture_cue = self.bridge.imgmsg_to_cv2(texture_msg, "32FC1") #single-channel 32-bit float format,
         if motion_msg is not None:
-            motion_cue = self.bridge.imgmsg_to_cv2(motion_msg, "32FC1")
+            motion_cue = self.bridge.imgmsg_to_cv2(motion_msg, "32FC1") #single-channel 32-bit float format,
 
         self.train_buffer.update_samples(img, sky_horizon_cue, self.buffer_index, texture_cue=texture_cue, motion_cue=motion_cue)
         self.buffer_index += 1
 
         # LIFO order: replace earliest seen sample
+        # when the buffer is full, we train and reset 
         if self.buffer_index == self.args.buffer_size: 
             self.buffer_index = 0
             
             self.online_train()
             
             start = time.time()
+            # Update inference_network with weights of training_network.
             self.inference_network.update_weights(self.training_network.model)
             # self.buffer_index = 4
             # self.train_buffer.drop_and_coalesce()
             end = time.time()
             
             print("Weight transfer time: ", end - start)
-            
+
+#------------------ Intermediary callbacks end------------------
+  
+    # --------------------------------------------------------------
     def online_train(self):
         print('Training...')
         train_start = time.time()
@@ -252,11 +275,12 @@ class OnlineTraining:
         train_end = time.time()
 
         training_time = train_end - train_start
+        print("training time is  time: ", training_time)
         label_time = label_generation_end - label_generation_start
         description = self.training_description.format(training_time, label_time)
         self.training_pub.publish(description)
 
-
+# -----------------------------------------------------------------------------------------------
 
 if __name__ == '__main__':
 

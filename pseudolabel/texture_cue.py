@@ -24,7 +24,16 @@ class SiftPseudoLabeler:
 
         kp2 = self.sift.detect(img, None)
 
-        curr_segs = slic(img_as_float(img), n_segments=100, slic_zero=False, compactness=0.1, sigma=1, start_label=1)
+        # curr_segs = slic(img_as_float(img), n_segments=100, slic_zero=False, compactness=0.1, sigma=1, start_label=1)
+        curr_segs = slic(
+            img_as_float(img),
+            n_segments=100,
+            slic_zero=False,
+            compactness=0.1,
+            sigma=1,
+            start_label=1,
+            channel_axis=None # added this line since we are getting 2D (grayscale images)
+        )
         slic_boundaries = find_boundaries(curr_segs, mode='thick', connectivity=1)
         slic_boundaries = binary_dilation(slic_boundaries, disk(1))
 
