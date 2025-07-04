@@ -1,7 +1,15 @@
 # Images
 **/*.png 
+# **/**/*.png 
+# **/**/**/*.png 
 **/*.jpg 
 **/*.jpeg
+**/*.tiff
+
+# bag files
+*.bag
+*.bag.compressed
+**/*.bag
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

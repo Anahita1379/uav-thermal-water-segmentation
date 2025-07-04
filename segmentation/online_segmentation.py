@@ -15,6 +15,7 @@ import message_filters
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from cv_bridge import CvBridge
+import cv2
 
 
 class OnlineTraining:
@@ -168,6 +169,7 @@ class OnlineTraining:
         if self.args.postprocess:
             water_segmentation = postprocess_mask(water_segmentation)
 
+        # cv2.imshow('water_segmentation', water_segmentation)
         water_img = self.bridge.cv2_to_imgmsg(water_segmentation, "mono8") #8-bit, single-channel grayscale.
         water_img.header = thermal_msg.header
         self.segmentation_pub.publish(water_img)   
